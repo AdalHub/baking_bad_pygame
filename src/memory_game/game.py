@@ -29,6 +29,9 @@ pygame.mixer.music.load(music_path)
 pygame.mixer.music.play(-1)
 pygame.mixer.music.set_volume(.5)
 
+# Load sound effects
+jesse_yea_sound = pygame.mixer.Sound(os.path.join(SCRIPT_DIR, "assets", "music", "jesse_yea.mp3"))
+
 # Load all player images (ONCE) - keep originals for scaling
 front_image_original = pygame.image.load(os.path.join(SCRIPT_DIR, "assets", "images", "front_heisenburg.png"))
 side_image_original = pygame.image.load(os.path.join(SCRIPT_DIR, "assets", "images", "side_heisenburg.png"))
@@ -46,6 +49,27 @@ side_image_original = pygame.transform.scale(
 
 # Load baggy goods image
 baggy_goods_original = pygame.image.load(os.path.join(SCRIPT_DIR, "assets", "images", "baggy_goods.png"))
+
+# Load Jesse image and scale to match player size
+jesse_image_original = pygame.image.load(os.path.join(SCRIPT_DIR, "assets", "images", "jesse.png"))
+# Scale Jesse to same base size as player (75% of original)
+jesse_image_original = pygame.transform.scale(
+    jesse_image_original,
+    (int(jesse_image_original.get_width() * base_scale), int(jesse_image_original.get_height() * base_scale))
+)
+jesse_image = pygame.transform.flip(jesse_image_original, True, False)  # Flip horizontally
+
+# Position Jesse at bottom right corner
+jesse_x = SCREEN_WIDTH - jesse_image.get_width()  # Far right
+jesse_y = SCREEN_HEIGHT  # Bottom of screen (jesse_y represents bottom of Jesse's feet)
+
+# Define Jesse interaction zone
+jesse_interaction_rect = pygame.Rect(
+    jesse_x - 50,
+    jesse_y - jesse_image.get_height() - 50,
+    jesse_image.get_width() + 100,
+    jesse_image.get_height() + 100
+)
 
 # Load the background image (ONCE, outside the loop)
 background_path = os.path.join(SCRIPT_DIR, "assets", "images", "background_outside.png")
@@ -89,9 +113,16 @@ is_moving = False  # Track if player is currently moving
 # Item holding state
 holding_item = False  # Whether player is holding baggy goods
 
-# Font for button
+# Money system
+money = 0
+show_money_popup = False
+money_popup_timer = 0
+money_popup_duration = 60  # Show for 60 frames (1 second at 60 FPS)
+
+# Font for button and money
 pygame.font.init()
 font = pygame.font.Font(None, 36)  # Pixelated-style font
+money_font = pygame.font.Font(None, 48)  # Larger font for money display
 
 clock = pygame.time.Clock()
 running = True
@@ -104,17 +135,32 @@ while running:
         if event.type == pygame.QUIT:
             running = False
         
-        # Check for E key press to interact with lab
+        # Check for E key press to interact
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_e:
-                # Check if player is near the lab
                 player_center_x = player_x + scaled_width // 2 if 'scaled_width' in locals() else player_x
                 player_center_y = player_y
-                if lab_interaction_rect.collidepoint(player_center_x, player_center_y):
+                
+                # Check if player is near the lab
+                if lab_interaction_rect.collidepoint(player_center_x, player_center_y) and not holding_item:
                     holding_item = True  # Pick up the item
+                
+                # Check if player is near Jesse and holding item
+                elif jesse_interaction_rect.collidepoint(player_center_x, player_center_y) and holding_item:
+                    holding_item = False  # Sell the item
+                    money += 100  # Add $100
+                    show_money_popup = True  # Show the popup
+                    money_popup_timer = money_popup_duration  # Reset timer
+                    jesse_yea_sound.play()  # Play Jesse sound effect
     
     # 2. Update Game State
     keys = pygame.key.get_pressed()
+    
+    # Update money popup timer
+    if show_money_popup:
+        money_popup_timer -= 1
+        if money_popup_timer <= 0:
+            show_money_popup = False
     
     # Check which key is pressed and update direction
     is_moving = False
@@ -183,13 +229,18 @@ while running:
     # Keep player within X boundaries (using original scaled width for movement)
     player_x = max(0, min(player_x, SCREEN_WIDTH - scaled_width))
 
-    # Check if player is near lab for interaction prompt
+    # Check if player is near lab or Jesse for interaction prompt
     player_center_x = player_x + scaled_width // 2
     player_center_y = player_y
     near_lab = lab_interaction_rect.collidepoint(player_center_x, player_center_y)
+    near_jesse = jesse_interaction_rect.collidepoint(player_center_x, player_center_y)
 
     # 3. DRAW EVERYTHING
     screen.blit(background_image, (0, 0))
+    
+    # Draw Jesse at bottom right (calculate draw position from jesse_y which is bottom)
+    jesse_draw_y = jesse_y - jesse_image.get_height()
+    screen.blit(jesse_image, (jesse_x, jesse_draw_y))
     
     # Draw lab and player based on Y position (depth sorting)
     # If player's feet are below the lab's depth line, draw player in front
@@ -199,8 +250,8 @@ while running:
         
         # Draw baggy goods if holding (on top of player)
         if holding_item:
-            baggy_scaled_width = int(baggy_goods_original.get_width() * scale_factor * 1.2)  # Changed from 0.6 to 1.2
-            baggy_scaled_height = int(baggy_goods_original.get_height() * scale_factor * 1.2)  # Changed from 0.6 to 1.2
+            baggy_scaled_width = int(baggy_goods_original.get_width() * scale_factor * 1.2)
+            baggy_scaled_height = int(baggy_goods_original.get_height() * scale_factor * 1.2)
             baggy_goods_image = pygame.transform.scale(baggy_goods_original, (baggy_scaled_width, baggy_scaled_height))
             
             # Position baggy goods to the side of the player
@@ -217,8 +268,8 @@ while running:
         
         # Draw baggy goods if holding (on top of player when behind)
         if holding_item:
-            baggy_scaled_width = int(baggy_goods_original.get_width() * scale_factor * 1.2)  # Changed from 0.6 to 1.2
-            baggy_scaled_height = int(baggy_goods_original.get_height() * scale_factor * 1.2)  # Changed from 0.6 to 1.2
+            baggy_scaled_width = int(baggy_goods_original.get_width() * scale_factor * 1.2)
+            baggy_scaled_height = int(baggy_goods_original.get_height() * scale_factor * 1.2)
             baggy_goods_image = pygame.transform.scale(baggy_goods_original, (baggy_scaled_width, baggy_scaled_height))
             
             # Position baggy goods to the side of the player
@@ -252,6 +303,39 @@ while running:
         
         # Draw text
         screen.blit(button_text, button_rect)
+    
+    # Draw "SELL" button if near Jesse and holding item
+    if near_jesse and holding_item:
+        button_text = font.render("SELL [E]", True, WHITE)
+        button_rect = button_text.get_rect()
+        button_rect.centerx = jesse_x + jesse_image.get_width() // 2
+        button_rect.bottom = jesse_draw_y - 10
+        
+        # Draw button background
+        padding = 10
+        background_rect = pygame.Rect(
+            button_rect.x - padding,
+            button_rect.y - padding,
+            button_rect.width + padding * 2,
+            button_rect.height + padding * 2
+        )
+        pygame.draw.rect(screen, BLACK, background_rect)
+        pygame.draw.rect(screen, WHITE, background_rect, 2)
+        
+        # Draw text
+        screen.blit(button_text, button_rect)
+    
+    # Draw money counter in top left
+    money_text = money_font.render(f"${money}", True, GREEN)
+    screen.blit(money_text, (20, 20))
+    
+    # Draw +$100 popup above player if active
+    if show_money_popup:
+        popup_text = money_font.render("+$100", True, GREEN)
+        popup_rect = popup_text.get_rect()
+        popup_rect.centerx = draw_x + player_rect.width // 2
+        popup_rect.bottom = draw_y - 20
+        screen.blit(popup_text, popup_rect)
     
     pygame.display.update()
 
